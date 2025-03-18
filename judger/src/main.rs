@@ -10,7 +10,7 @@ extern crate lazy_static;
 
 use std::{fs, path::PathBuf, time::Duration};
 
-use actix_web::{App, HttpServer};
+use actix_web::{cookie::time, App, HttpServer};
 use agent::{platform, rclone::RcloneClient};
 use judge_core::judge::{
     result::{JudgeResultInfo, JudgeVerdict},
@@ -138,12 +138,16 @@ async fn judge(
 
     let prepare_result = worker.prepare_judge(problem_slug.clone(), language, code.clone());
     if prepare_result.is_err() {
-        log::error!("Failed to prepare judge: {:?}", prepare_result.err());
+        let err = prepare_result.err();
+        log::error!("Failed to prepare judge: {:?}", err);
+        println!("{:?}", err);
         return Ok(());
     }
     let judge = prepare_result.unwrap();
 
     let mut verdict = JudgeVerdict::Accepted;
+    let mut max_time_usage = Duration::ZERO; // 明确使用Duration类型
+    let mut max_memory_usage: i64 = 0; // 显式声明usize类型
     for idx in 0..judge.testdata_configs.len() {
         log::debug!("Judge {}, Testcase {}!", problem_slug, idx);
         let judge_config = JudgeConfig {
@@ -169,11 +173,19 @@ async fn judge(
                 log::debug!("Failed to run judge: {:?}", e);
             }
         }
+        max_time_usage = max_time_usage.max(result.time_usage);
+        max_memory_usage = max_memory_usage.max(result.memory_usage_bytes);
         if result.verdict != JudgeVerdict::Accepted {
             verdict = result.verdict;
             break;
         }
     }
     println!("{:?}", verdict);
+    println!(
+        "Max time: {:?}, Max memory: {} bytes",
+        max_time_usage, max_memory_usage
+    );
+
     Ok(())
 }
+
